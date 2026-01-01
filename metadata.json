@@ -1,0 +1,9 @@
+{
+  "name": "ProScalp Mentorship",
+  "description": "A premium XAUUSD scalp trading mentorship platform featuring automated trade analysis, real-time community chat, and comprehensive learning tools.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ]
+}
