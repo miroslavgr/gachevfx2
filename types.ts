@@ -134,7 +134,7 @@ export interface MentorOutlook {
   videoUrl?: string;
   levels: KeyLevel[];
   timeline: TimelineEvent[];
-  notes: OutlookNote[]; // Added notes
+  notes: OutlookNote[];
   
   // Specific Fields
   date?: string;
@@ -160,16 +160,28 @@ export interface VideoResource {
 
 // --- Course / LMS Types (CONSOLIDATED) ---
 
+export interface QuizQuestion {
+    id: string;
+    question: string;
+    options: string[];
+    correctOptionIndex: number;
+}
+
 // 1. A single Lesson (The standard unit)
 export interface CourseLesson {
     id: string;
+    moduleId: string; // Required now for better linking
     title: string;
-    type: 'video' | 'article' | 'quiz';
+    type: 'video' | 'text' | 'quiz'; // Changed 'article' to 'text' to match your code
+    order: number; // Added: Critical for sorting
     duration: string;     
+    
+    // Optional data fields based on type
     videoUrl?: string;    
-    content?: string;     
+    textContent?: string; // Renamed from 'content' to match your code usage
+    quizData?: QuizQuestion[]; // Added for quiz support
+    
     isFree?: boolean; 
-    moduleId?: string; // Optional helper
 }
 
 // Alias for compatibility if any code still uses "CourseContent"
@@ -187,7 +199,7 @@ export interface CourseModule {
 // 3. User Progress
 export interface UserCourseProgress {
     userId: string;
-    completedLessonIds: string[]; // List of IDs like ['lesson_1']
-    lastAccessedId?: string;      // Where they left off
-    totalProgress: number;        // 0 to 100 percentage
+    completedContentIds: string[]; // Changed from completedLessonIds to match code
+    lastAccessedId?: string;      
+    totalProgress: number;        
 }

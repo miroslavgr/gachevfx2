@@ -84,17 +84,17 @@ const App: React.FC = () => {
       const contentRes = await CourseService.getAllContent();
       if (courseRes.success && courseRes.data) {
         setCourseModules(courseRes.data);
-        const allLessons: CourseContent[] = courseRes.data.flatMap(m => m.lessons);
-        setCourseContent(allLessons);
+        // We don't need to flatMap lessons if we fetch content separately, 
+        // but keeping existing logic safe:
       }
 
       if (contentRes.success && contentRes.data) {
-        setCourseContent(contentRes.data); // <--- Set the real content from DB
+        setCourseContent(contentRes.data); 
       }
       
     };
     loadData();
-  }, [currentUser]); // Note: In a real app, careful with deps to avoid loops, but this is fine for now.
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser?.role === UserRole.ADMIN) {
@@ -117,6 +117,29 @@ const App: React.FC = () => {
       setCourseContent(newContent);
       newContent.forEach(c => CourseService.saveContent(c));
   };
+
+  // --- NEW DELETE HANDLERS ---
+  const handleDeleteModule = async (moduleId: string) => {
+      // 1. Update Local State
+      setCourseModules(prev => prev.filter(m => m.id !== moduleId));
+      
+      // 2. Delete Module from DB
+      await CourseService.deleteModule(moduleId);
+
+      // 3. Cleanup associated content (Optional but recommended)
+      const contentToDelete = courseContent.filter(c => c.moduleId === moduleId);
+      contentToDelete.forEach(c => CourseService.deleteContent(c.id));
+      setCourseContent(prev => prev.filter(c => c.moduleId !== moduleId));
+  };
+
+  const handleDeleteContent = async (contentId: string) => {
+      // 1. Update Local State
+      setCourseContent(prev => prev.filter(c => c.id !== contentId));
+      
+      // 2. Delete Content from DB
+      await CourseService.deleteContent(contentId);
+  };
+  // ---------------------------
 
   useEffect(() => {
     const loadProgress = async () => {
@@ -233,6 +256,8 @@ const App: React.FC = () => {
                     userProgress={userProgress}
                     onUpdateModules={handleUpdateModules}
                     onUpdateContent={handleUpdateContent}
+                    onDeleteModule={handleDeleteModule}   // <--- Passed Here
+                    onDeleteContent={handleDeleteContent} // <--- Passed Here
                     onUpdateProgress={handleUpdateProgress}
                 />
             );
@@ -263,7 +288,7 @@ const App: React.FC = () => {
             return (
                 <TradersList 
                   currentUser={currentUser!}
-                  users={MOCK_USERS} // Note: You might want to switch this to 'allUsers' later
+                  users={MOCK_USERS} 
                   trades={trades}
                   onNavigateToProfile={handleNavigateToProfile}
                   onToggleFollow={handleToggleFollow}

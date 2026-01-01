@@ -12,9 +12,22 @@ interface CourseLMSProps {
     onUpdateContent: (content: CourseContent[]) => void;
     onUpdateModules: (modules: CourseModule[]) => void;
     onUpdateProgress: (progress: UserCourseProgress) => void;
+    onDeleteModule: (id: string) => void;   // <--- New Prop
+    onDeleteContent: (id: string) => void;  // <--- New Prop
 }
 
-const CourseLMS: React.FC<CourseLMSProps> = ({ currentUser, allUsers, modules, content, userProgress, onUpdateContent, onUpdateModules, onUpdateProgress }) => {
+const CourseLMS: React.FC<CourseLMSProps> = ({ 
+    currentUser, 
+    allUsers, 
+    modules, 
+    content, 
+    userProgress, 
+    onUpdateContent, 
+    onUpdateModules, 
+    onUpdateProgress,
+    onDeleteModule,  // <--- Destructure
+    onDeleteContent  // <--- Destructure
+}) => {
     const isAdmin = currentUser.role === UserRole.ADMIN;
     const [isEditMode, setIsEditMode] = useState(false);
     const { t } = useLanguage();
@@ -152,7 +165,7 @@ const CourseLMS: React.FC<CourseLMSProps> = ({ currentUser, allUsers, modules, c
 
     const handleDeleteContent = (id: string) => {
         if (confirm("Delete this content?")) {
-            onUpdateContent(content.filter(c => c.id !== id));
+            onDeleteContent(id); // <--- Using the new prop to trigger DB delete
         }
     };
 
@@ -246,13 +259,11 @@ const CourseLMS: React.FC<CourseLMSProps> = ({ currentUser, allUsers, modules, c
         };
         onUpdateModules([...modules, newModule]);
         setNewModuleTitle(''); 
-        // Note: setIsAddingModule(false) is REMOVED so the form stays open
     };
 
     const handleDeleteModule = (moduleId: string) => {
         if (confirm("Delete this module and all its content?")) {
-            onUpdateModules(modules.filter(m => m.id !== moduleId));
-            onUpdateContent(content.filter(c => c.moduleId !== moduleId));
+            onDeleteModule(moduleId); // <--- Using the new prop
             if (activeModuleId === moduleId) setActiveModuleId(modules[0]?.id || '');
         }
     };
