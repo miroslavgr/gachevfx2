@@ -349,6 +349,8 @@ export const CourseService = {
     }
 };
 
+// ... inside UserService object ...
+
 export const UserService = {
     getAll: async (): Promise<ApiResponse<User[]>> => {
         try {
@@ -360,6 +362,14 @@ export const UserService = {
             return { success: false, message: e.message };
         }
     },
+    setScreenShareStatus: async (userId: string, isSharing: boolean) => {
+        try {
+            await setDoc(doc(db, "users", userId), { isSharingScreen: isSharing }, { merge: true });
+        } catch (e) {
+            console.error("Error updating screen share status", e);
+        }
+    },
+    
     updateUser: async (user: User): Promise<ApiResponse<User>> => {
         try {
             await setDoc(doc(db, "users", user.id), user, { merge: true });
@@ -367,6 +377,17 @@ export const UserService = {
         } catch (e: any) {
             return { success: false, message: e.message };
         }
+    },
+    // --- NEW: Real-time User Listener ---
+    subscribeToUsers: (callback: (users: User[]) => void) => {
+        const q = query(collection(db, "users"));
+        return onSnapshot(q, (snapshot) => {
+            const users: User[] = [];
+            snapshot.forEach((doc) => {
+                users.push(doc.data() as User);
+            });
+            callback(users);
+        });
     }
 };
 
