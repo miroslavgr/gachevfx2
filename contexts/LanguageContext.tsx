@@ -1,9 +1,12 @@
-
-import React, { createContext, useState, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import { AppTranslations } from '../types';
+import { TranslationService } from '../services/api';
 
 export type Language = 'bg' | 'en';
 
-export const translations = {
+// Your "Source of Truth" for structure and default text.
+// This loads INSTANTLY (0ms delay).
+export const DEFAULT_TRANSLATIONS: AppTranslations = {
   bg: {
     // General
     "app.name": "PROSCALP",
@@ -235,20 +238,81 @@ export const translations = {
 interface LanguageContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
-  t: (key: keyof typeof translations['en']) => string;
+  t: (key: string) => string;
+  translations: AppTranslations;
+  updateTranslations: (newTranslations: AppTranslations) => Promise<boolean>;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [language, setLanguage] = useState<Language>('bg'); // Default Bulgarian
+  const [language, setLanguage] = useState<Language>('bg');
 
-  const t = (key: keyof typeof translations['en']) => {
-    return translations[language][key] || key;
+  // --- SMART INITIALIZATION (Fixes Flicker) ---
+  const [translations, setTranslations] = useState<AppTranslations>(() => {
+      // 1. Try to get cached translations from Local Storage (Instant)
+      try {
+          const cached = localStorage.getItem('app_translations');
+          if (cached) {
+              return JSON.parse(cached);
+          }
+      } catch (e) {
+          console.warn("Failed to load translations from cache");
+      }
+      // 2. Fallback to hardcoded defaults (Instant)
+      return DEFAULT_TRANSLATIONS;
+  });
+
+  // --- BACKGROUND SYNC (Fixes Stale Data) ---
+  useEffect(() => {
+      const syncTranslations = async () => {
+          const stored = await TranslationService.getTranslations();
+          if (stored) {
+              // Merge Logic:
+              // Start with Defaults (to ensure new keys from code exist)
+              // Overwrite with DB values (to apply Admin edits)
+              const merged = { ...DEFAULT_TRANSLATIONS };
+              
+              Object.keys(stored).forEach(lang => {
+                  merged[lang] = { ...merged[lang], ...stored[lang] };
+              });
+              
+              // Only update state if there are actual changes to prevent re-renders
+              if (JSON.stringify(merged) !== JSON.stringify(translations)) {
+                  setTranslations(merged);
+                  localStorage.setItem('app_translations', JSON.stringify(merged));
+              }
+          }
+      };
+      
+      syncTranslations();
+  }, []);
+
+  const updateTranslations = async (newTranslations: AppTranslations) => {
+      // 1. Optimistic Update (Update UI immediately)
+      setTranslations(newTranslations);
+      localStorage.setItem('app_translations', JSON.stringify(newTranslations));
+      
+      // 2. Persist to Database (Background)
+      const success = await TranslationService.saveTranslations(newTranslations);
+      return success;
+  };
+
+  const t = (key: string) => {
+    // 1. Try selected language
+    if (translations[language] && translations[language][key]) {
+        return translations[language][key];
+    }
+    // 2. Fallback to English
+    if (translations['en'] && translations['en'][key]) {
+        return translations['en'][key];
+    }
+    // 3. Fallback to Key itself
+    return key;
   };
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, t }}>
+    <LanguageContext.Provider value={{ language, setLanguage, t, translations, updateTranslations }}>
       {children}
     </LanguageContext.Provider>
   );

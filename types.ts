@@ -203,3 +203,12 @@ export interface UserCourseProgress {
     lastAccessedId?: string;      
     totalProgress: number;        
 }
+
+// --- Localization Types ---
+export interface TranslationData {
+    [key: string]: string;
+}
+
+export interface AppTranslations {
+    [langCode: string]: TranslationData;
+}

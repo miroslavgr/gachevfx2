@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'; 
 import { User, UserRole, Trade, Notification, MentorOutlook, VideoResource, CourseModule, CourseContent, UserCourseProgress, Channel } from './types';
-import { MOCK_USERS, MOCK_NOTIFICATIONS, MOCK_VIDEOS, CHANNELS } from './constants';
+import { MOCK_NOTIFICATIONS, MOCK_VIDEOS, CHANNELS } from './constants';
 import { onAuthStateChanged } from 'firebase/auth';
-import { AuthService, TradeService, OutlookService, CourseService } from './services/api';
-import { collection, query, getDocs } from 'firebase/firestore';
+import { AuthService, TradeService, OutlookService, CourseService, UserService, VideoService } from './services/api';
 import { auth, db } from './services/firebase';
+import { collection, query, getDocs } from 'firebase/firestore';
 import Layout from './components/Layout';
 import Landing from './components/Landing';
 import Dashboard from './components/Dashboard';
@@ -25,16 +25,14 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState('dashboard');
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
 
   const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
   const [selectedNotificationTradeId, setSelectedNotificationTradeId] = useState<string | null>(null);
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
   const [videos, setVideos] = useState<VideoResource[]>(MOCK_VIDEOS);
   
-  // Lifted State for Mentor to Edit
   const [outlooks, setOutlooks] = useState<MentorOutlook[]>([]);
-
-  // Mentor System Instructions for AI Reviews
   const [mentorSystemInstruction, setMentorSystemInstruction] = useState<string>(
       "You are a professional forex trading mentor. Be critical but constructive. Analyze the risk-to-reward ratio and market structure."
   );
@@ -56,56 +54,54 @@ const App: React.FC = () => {
         return () => unsubscribe(); 
   }, []);
 
-  // Lifted State for Channels (Chat Rooms)
   const [channels, setChannels] = useState<Channel[]>(CHANNELS);
-
-  // Course State
   const [courseModules, setCourseModules] = useState<CourseModule[]>([]);
   const [courseContent, setCourseContent] = useState<CourseContent[]>([]); 
   const [userProgress, setUserProgress] = useState<UserCourseProgress[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
-      // Load Trades
+      // 1. Load Trades
       const tradeRes = await TradeService.getTrades();
       if (tradeRes.success && tradeRes.data) {
         setTrades(tradeRes.data);
       }
 
-      // Load Outlooks
+      // 2. Load Outlooks
       const outlookRes = await OutlookService.getAll();
       if (outlookRes.success && outlookRes.data) {
         setOutlooks(outlookRes.data);
       }
 
-      // Load Course
+      // 3. Load Users
+      const userRes = await UserService.getAll();
+      if (userRes.success && userRes.data) {
+          setAllUsers(userRes.data);
+      }
+
+      // 4. Load Videos (NEW)
+      const videoRes = await VideoService.getAll();
+      if (videoRes.success && videoRes.data && videoRes.data.length > 0) {
+          setVideos(videoRes.data);
+      }
+
+      
+      // 5. Load Course
       const courseRes = await CourseService.getModules(); 
       const contentRes = await CourseService.getAllContent();
       if (courseRes.success && courseRes.data) {
         setCourseModules(courseRes.data);
-        // We don't need to flatMap lessons if we fetch content separately, 
-        // but keeping existing logic safe:
       }
-
       if (contentRes.success && contentRes.data) {
         setCourseContent(contentRes.data); 
+      } else if (courseRes.success && courseRes.data) {
+        const allLessons: CourseContent[] = courseRes.data.flatMap(m => m.lessons || []);
+        if (allLessons.length > 0) {
+            setCourseContent(allLessons);
+        }
       }
-      
     };
     loadData();
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (currentUser?.role === UserRole.ADMIN) {
-         const fetchUsers = async () => {
-             const q = query(collection(db, "users"));
-             const snap = await getDocs(q);
-             const users = snap.docs.map(d => d.data() as User);
-             setAllUsers(users);
-         };
-         fetchUsers();
-    }
   }, [currentUser]);
   
   const handleUpdateModules = async (newModules: CourseModule[]) => {
@@ -118,28 +114,18 @@ const App: React.FC = () => {
       newContent.forEach(c => CourseService.saveContent(c));
   };
 
-  // --- NEW DELETE HANDLERS ---
   const handleDeleteModule = async (moduleId: string) => {
-      // 1. Update Local State
       setCourseModules(prev => prev.filter(m => m.id !== moduleId));
-      
-      // 2. Delete Module from DB
       await CourseService.deleteModule(moduleId);
-
-      // 3. Cleanup associated content (Optional but recommended)
       const contentToDelete = courseContent.filter(c => c.moduleId === moduleId);
       contentToDelete.forEach(c => CourseService.deleteContent(c.id));
       setCourseContent(prev => prev.filter(c => c.moduleId !== moduleId));
   };
 
   const handleDeleteContent = async (contentId: string) => {
-      // 1. Update Local State
       setCourseContent(prev => prev.filter(c => c.id !== contentId));
-      
-      // 2. Delete Content from DB
       await CourseService.deleteContent(contentId);
   };
-  // ---------------------------
 
   useEffect(() => {
     const loadProgress = async () => {
@@ -182,10 +168,10 @@ const App: React.FC = () => {
       }
   };
   
-  const updateUser = (updatedUser: User) => {
+  const updateUser = async (updatedUser: User) => {
       setCurrentUser(updatedUser);
-      const userIndex = MOCK_USERS.findIndex(u => u.id === updatedUser.id);
-      if(userIndex >= 0) MOCK_USERS[userIndex] = updatedUser;
+      setAllUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+      await UserService.updateUser(updatedUser);
   };
 
   const handleNavigateToProfile = (userId: string) => {
@@ -198,7 +184,7 @@ const App: React.FC = () => {
       setPage('trades');
   };
 
-  const handleToggleFollow = (targetId: string) => {
+  const handleToggleFollow = async (targetId: string) => {
       if(!currentUser) return;
       let newFollowing = [...currentUser.following];
       if (newFollowing.includes(targetId)) {
@@ -206,15 +192,23 @@ const App: React.FC = () => {
       } else {
           newFollowing.push(targetId);
       }
-      updateUser({ ...currentUser, following: newFollowing });
+      const updatedUser = { ...currentUser, following: newFollowing };
+      setCurrentUser(updatedUser);
+      await UserService.updateUser(updatedUser);
   };
 
-  const handleAddVideo = (video: VideoResource) => {
+  // --- UPDATED VIDEO HANDLER ---
+  const handleAddVideo = async (video: VideoResource) => {
+      // 1. Optimistic Update
       setVideos(prev => [video, ...prev]);
+      // 2. Persist to DB
+      await VideoService.save(video);
   };
+  // -----------------------------
 
-  const handleTradeUpdate = (updatedTrade: Trade) => {
+  const handleTradeUpdate = async (updatedTrade: Trade) => {
       setTrades(prevTrades => prevTrades.map(t => t.id === updatedTrade.id ? updatedTrade : t));
+      await TradeService.updateTrade(updatedTrade);
   };
 
   const handleUpdateProgress = (newProgress: UserCourseProgress) => {
@@ -235,7 +229,6 @@ const App: React.FC = () => {
       setChannels(prev => prev.filter(c => c.id !== channelId));
   };
 
-  // --- RENDER FUNCTION (Moved outside of a component definition) ---
   const renderPageContent = () => {
     switch (page) {
         case 'dashboard':
@@ -256,8 +249,8 @@ const App: React.FC = () => {
                     userProgress={userProgress}
                     onUpdateModules={handleUpdateModules}
                     onUpdateContent={handleUpdateContent}
-                    onDeleteModule={handleDeleteModule}   // <--- Passed Here
-                    onDeleteContent={handleDeleteContent} // <--- Passed Here
+                    onDeleteModule={handleDeleteModule}
+                    onDeleteContent={handleDeleteContent}
                     onUpdateProgress={handleUpdateProgress}
                 />
             );
@@ -268,6 +261,7 @@ const App: React.FC = () => {
               <TradeCenter 
                   currentUser={currentUser!} 
                   trades={trades} 
+                  allUsers={allUsers}
                   setTrades={setTrades}
                   onUpdateTrade={handleTradeUpdate}
                   initialTradeId={selectedNotificationTradeId}
@@ -288,7 +282,7 @@ const App: React.FC = () => {
             return (
                 <TradersList 
                   currentUser={currentUser!}
-                  users={MOCK_USERS} 
+                  users={allUsers}
                   trades={trades}
                   onNavigateToProfile={handleNavigateToProfile}
                   onToggleFollow={handleToggleFollow}
@@ -300,11 +294,12 @@ const App: React.FC = () => {
                   currentUser={currentUser!} 
                   trades={trades}
                   channels={channels}
+                  allUsers={allUsers}
                   onAddChannel={handleAddChannel}
                   onDeleteChannel={handleDeleteChannel}
                   onNavigateToProfile={handleNavigateToProfile}
                   onNavigateToTrade={handleNavigateToTrade}
-                  onSaveRecording={handleAddVideo}
+                  onSaveRecording={handleAddVideo} // <--- Connected here
               />
           );
         case 'notifications':
@@ -326,7 +321,7 @@ const App: React.FC = () => {
                 />
             );
         case 'user-profile':
-            const targetUser = MOCK_USERS.find(u => u.id === viewingUserId);
+            const targetUser = allUsers.find(u => u.id === viewingUserId);
             if (!targetUser) return <div>User not found</div>;
             return (
                 <UserProfile 

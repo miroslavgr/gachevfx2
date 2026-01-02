@@ -1,8 +1,8 @@
-
 import React, { useState, useRef } from 'react';
-import { VideoResource, User, UserRole } from '../types';
-import { PlayCircle, Upload, Search, Filter, Clock, User as UserIcon, X, Check } from 'lucide-react';
+import { VideoResource, User } from '../types';
+import { PlayCircle, Upload, Search, X, Check, Loader, Clock } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { VideoService } from '../services/api'; 
 
 interface VideoArchiveProps {
     currentUser: User;
@@ -14,6 +14,12 @@ const VideoArchive: React.FC<VideoArchiveProps> = ({ currentUser, videos, onAddV
     const [searchQuery, setSearchQuery] = useState('');
     const [typeFilter, setTypeFilter] = useState<'all' | 'live_recording' | 'upload'>('all');
     const [isUploading, setIsUploading] = useState(false);
+    const [isProcessing, setIsProcessing] = useState(false);
+    
+    // --- NEW: Active Video State for Player ---
+    const [activeVideo, setActiveVideo] = useState<VideoResource | null>(null);
+    // ------------------------------------------
+
     const { t } = useLanguage();
     
     // Upload State
@@ -28,32 +34,98 @@ const VideoArchive: React.FC<VideoArchiveProps> = ({ currentUser, videos, onAddV
         return true;
     }).sort((a,b) => b.timestamp - a.timestamp);
 
-    const handleUpload = (e: React.FormEvent) => {
+    const handleUpload = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!uploadFile) return;
 
-        const url = URL.createObjectURL(uploadFile);
-        
-        const newVideo: VideoResource = {
-            id: Date.now().toString(),
-            title: uploadTitle,
-            description: uploadDesc,
-            url: url,
-            authorName: currentUser.name,
-            timestamp: Date.now(),
-            type: 'upload',
-            duration: '00:00' // Placeholder as we can't easily get duration from blob without loading metadata
-        };
+        setIsProcessing(true);
 
-        onAddVideo(newVideo);
-        setIsUploading(false);
-        setUploadTitle('');
-        setUploadDesc('');
-        setUploadFile(null);
+        try {
+            const permUrl = await VideoService.uploadVideo(uploadFile);
+            
+            const newVideo: VideoResource = {
+                id: Date.now().toString(),
+                title: uploadTitle,
+                description: uploadDesc,
+                url: permUrl,
+                authorName: currentUser.name,
+                timestamp: Date.now(),
+                type: 'upload',
+                duration: '00:00' 
+            };
+
+            onAddVideo(newVideo);
+            
+            setIsUploading(false);
+            setUploadTitle('');
+            setUploadDesc('');
+            setUploadFile(null);
+        } catch (err) {
+            console.error("Upload failed", err);
+            alert("Failed to upload video.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    // --- NEW: Video Player Modal ---
+    const renderVideoPlayer = () => {
+        if (!activeVideo) return null;
+
+        return (
+            <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200">
+                {/* Close Button */}
+                <button 
+                    onClick={() => setActiveVideo(null)}
+                    className="absolute top-6 right-6 z-50 bg-slate-800/50 p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+                >
+                    <X size={32} />
+                </button>
+                
+                {/* Player Container */}
+                <div className="w-full max-w-6xl flex flex-col bg-dark-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-800 max-h-full">
+                    <div className="bg-black w-full aspect-video flex items-center justify-center">
+                        <video 
+                            src={activeVideo.url} 
+                            controls 
+                            autoPlay 
+                            className="w-full h-full"
+                        />
+                    </div>
+                    <div className="p-6 overflow-y-auto">
+                        <div className="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 className="text-2xl font-bold text-white mb-2">{activeVideo.title}</h3>
+                                <div className="flex items-center gap-3 text-sm">
+                                    <span className={`px-2 py-0.5 rounded uppercase font-bold text-[10px] ${activeVideo.type === 'live_recording' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                        {activeVideo.type === 'live_recording' ? 'Live Session' : 'Upload'}
+                                    </span>
+                                    <span className="text-slate-500 flex items-center gap-1">
+                                        <Clock size={12}/> {new Date(activeVideo.timestamp).toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full">
+                                <div className="w-6 h-6 rounded-full bg-slate-600 flex items-center justify-center text-xs font-bold text-white">
+                                    {activeVideo.authorName.charAt(0)}
+                                </div>
+                                <span className="text-sm text-slate-300 font-medium">{activeVideo.authorName}</span>
+                            </div>
+                        </div>
+                        <p className="text-slate-400 leading-relaxed border-t border-slate-800 pt-4">
+                            {activeVideo.description || "No description provided."}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+            {/* Render the Player Overlay */}
+            {renderVideoPlayer()}
+
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                 <div>
                     <h2 className="text-4xl font-serif font-bold text-white mb-2">{t('video.title')}</h2>
@@ -61,7 +133,6 @@ const VideoArchive: React.FC<VideoArchiveProps> = ({ currentUser, videos, onAddV
                 </div>
                 
                 <div className="flex gap-4">
-                     {/* Search */}
                     <div className="relative group">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-gold-500 transition-colors" size={16} />
                         <input 
@@ -83,7 +154,6 @@ const VideoArchive: React.FC<VideoArchiveProps> = ({ currentUser, videos, onAddV
                 </div>
             </div>
 
-            {/* Upload Area */}
             {isUploading && (
                 <div className="glass-panel p-6 rounded-2xl border-dashed border-2 border-slate-600 bg-slate-800/30 animate-in slide-in-from-top-4">
                      <h3 className="text-lg font-bold text-white mb-4">{t('video.upload_new')}</h3>
@@ -133,15 +203,19 @@ const VideoArchive: React.FC<VideoArchiveProps> = ({ currentUser, videos, onAddV
                                     onChange={(e) => e.target.files?.[0] && setUploadFile(e.target.files[0])} 
                                  />
                              </div>
-                             <button type="submit" className="w-full py-3 bg-gold-500 text-dark-900 font-bold rounded-xl mt-4 hover:bg-gold-400 transition-colors">
-                                 {t('video.publish')}
+                             <button 
+                                type="submit" 
+                                disabled={isProcessing}
+                                className="w-full py-3 bg-gold-500 text-dark-900 font-bold rounded-xl mt-4 hover:bg-gold-400 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                             >
+                                 {isProcessing && <Loader size={16} className="animate-spin" />}
+                                 {isProcessing ? 'Uploading...' : t('video.publish')}
                              </button>
                          </div>
                      </form>
                 </div>
             )}
 
-            {/* Filter Tabs */}
             <div className="flex gap-2 border-b border-slate-800 pb-4">
                 <button 
                     onClick={() => setTypeFilter('all')}
@@ -163,18 +237,23 @@ const VideoArchive: React.FC<VideoArchiveProps> = ({ currentUser, videos, onAddV
                 </button>
             </div>
 
-            {/* Video Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredVideos.map(video => (
-                    <div key={video.id} className="glass-panel rounded-2xl overflow-hidden group hover:border-gold-500/50 transition-all cursor-pointer hover:-translate-y-1 duration-300">
+                    <div 
+                        key={video.id} 
+                        onClick={() => setActiveVideo(video)} // <--- CLICK TO PLAY
+                        className="glass-panel rounded-2xl overflow-hidden group hover:border-gold-500/50 transition-all cursor-pointer hover:-translate-y-1 duration-300"
+                    >
                         <div className="aspect-video bg-black relative group-hover:opacity-90 transition-opacity">
                             {video.thumbnail ? (
                                 <img src={video.thumbnail} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity"/>
                             ) : (
-                                <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900"></div>
+                                <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900">
+                                    {/* Preview video (muted) */}
+                                    <video src={video.url} className="w-full h-full object-cover opacity-60 group-hover:opacity-40" muted />
+                                </div>
                             )}
                             
-                            {/* Play Button Overlay */}
                             <div className="absolute inset-0 flex items-center justify-center">
                                 <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
                                     <PlayCircle size={48} className="text-white drop-shadow-lg" />

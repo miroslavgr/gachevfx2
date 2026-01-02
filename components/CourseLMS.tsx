@@ -12,8 +12,8 @@ interface CourseLMSProps {
     onUpdateContent: (content: CourseContent[]) => void;
     onUpdateModules: (modules: CourseModule[]) => void;
     onUpdateProgress: (progress: UserCourseProgress) => void;
-    onDeleteModule: (id: string) => void;   // <--- New Prop
-    onDeleteContent: (id: string) => void;  // <--- New Prop
+    onDeleteModule: (id: string) => void;
+    onDeleteContent: (id: string) => void;
 }
 
 const CourseLMS: React.FC<CourseLMSProps> = ({ 
@@ -25,8 +25,8 @@ const CourseLMS: React.FC<CourseLMSProps> = ({
     onUpdateContent, 
     onUpdateModules, 
     onUpdateProgress,
-    onDeleteModule,  // <--- Destructure
-    onDeleteContent  // <--- Destructure
+    onDeleteModule,
+    onDeleteContent
 }) => {
     const isAdmin = currentUser.role === UserRole.ADMIN;
     const [isEditMode, setIsEditMode] = useState(false);
@@ -46,31 +46,33 @@ const CourseLMS: React.FC<CourseLMSProps> = ({
     const [newContentTitle, setNewContentTitle] = useState('');
     const [newContentType, setNewContentType] = useState<'video'|'text'|'quiz'>('text');
 
+    // --- EFFECT: Auto-select first module when data loads ---
+    useEffect(() => {
+        if (!activeModuleId && modules.length > 0) {
+            setActiveModuleId(modules[0].id);
+        }
+    }, [modules, activeModuleId]);
+
     // --- Derived Data ---
     
-    // Get content for active module sorted by order
     const activeModuleContent = useMemo(() => {
         return content
             .filter(c => c.moduleId === activeModuleId)
             .sort((a, b) => a.order - b.order);
     }, [content, activeModuleId]);
 
-    // Determine whose progress we are viewing
     const targetUserId = (isAdmin && viewingProgressUserId) ? viewingProgressUserId : currentUser.id;
 
-    // Calculate Target Progress
     const targetProgress = useMemo(() => {
         return userProgress.find(p => p.userId === targetUserId) || { userId: targetUserId, completedContentIds: [], totalProgress: 0 };
     }, [userProgress, targetUserId]);
 
-    // Set initial content if not set
     useEffect(() => {
         if (!activeContentId && activeModuleContent.length > 0) {
             setActiveContentId(activeModuleContent[0].id);
         }
     }, [activeModuleContent, activeContentId]);
 
-    // Determine lock status for Modules (Sequential)
     const moduleLockStatus = useMemo(() => {
         const status: Record<string, boolean> = {}; 
         let previousModuleCompleted = true; 
@@ -96,7 +98,6 @@ const CourseLMS: React.FC<CourseLMSProps> = ({
         return status;
     }, [modules, content, targetProgress, isAdmin]);
 
-    // Determine lock status for Content within Module
     const contentLockStatus = useMemo(() => {
          const status: Record<string, boolean> = {};
          let previousContentCompleted = true;
@@ -144,28 +145,44 @@ const CourseLMS: React.FC<CourseLMSProps> = ({
 
     const handleAddContent = () => {
         if (!newContentTitle) return;
+        
+        if (!activeModuleId) {
+            alert("Please select a module first.");
+            return;
+        }
+
         const newOrder = activeModuleContent.length + 1;
         const newId = Date.now().toString();
         
-        const newContentItem: CourseContent = {
+        // 1. Create the base item (without undefined fields)
+        const baseItem: CourseContent = {
             id: newId,
             moduleId: activeModuleId,
             type: newContentType,
             title: newContentTitle,
             duration: '5:00',
             order: newOrder,
-            textContent: newContentType === 'text' ? 'New text content...' : undefined,
-            videoUrl: newContentType === 'video' ? '' : undefined,
-            quizData: newContentType === 'quiz' ? [{ id: `q-${Date.now()}`, question: 'New Question', options: ['Option 1', 'Option 2'], correctOptionIndex: 0 }] : undefined
+            isFree: false
         };
 
-        onUpdateContent([...content, newContentItem]);
+        // 2. Conditionally add specific fields to avoid 'undefined' which crashes Firestore
+        if (newContentType === 'text') {
+            baseItem.textContent = 'New text content...';
+        }
+        if (newContentType === 'video') {
+            baseItem.videoUrl = '';
+        }
+        if (newContentType === 'quiz') {
+            baseItem.quizData = [{ id: `q-${Date.now()}`, question: 'New Question', options: ['Option 1', 'Option 2'], correctOptionIndex: 0 }];
+        }
+
+        onUpdateContent([...content, baseItem]);
         setNewContentTitle('');
     };
 
     const handleDeleteContent = (id: string) => {
         if (confirm("Delete this content?")) {
-            onDeleteContent(id); // <--- Using the new prop to trigger DB delete
+            onDeleteContent(id); 
         }
     };
 
@@ -263,7 +280,7 @@ const CourseLMS: React.FC<CourseLMSProps> = ({
 
     const handleDeleteModule = (moduleId: string) => {
         if (confirm("Delete this module and all its content?")) {
-            onDeleteModule(moduleId); // <--- Using the new prop
+            onDeleteModule(moduleId); 
             if (activeModuleId === moduleId) setActiveModuleId(modules[0]?.id || '');
         }
     };

@@ -1,16 +1,15 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Trade, TradeStatus, User, TradeStrategy } from '../types';
-import { Upload, Video, Filter, ThumbsUp, MessageCircle, Eye, Clock, AlertCircle, UserPlus, Check, ChevronRight, User as UserIcon, Users, Bitcoin } from 'lucide-react';
-import { reviewTrade } from '../services/geminiService';
-import TradeDetail from './TradeDetail';
-import { MOCK_USERS, TIMEFRAMES } from '../constants';
+import { Upload, AlertCircle, Check, ChevronRight, User as UserIcon, Bitcoin, ThumbsUp, MessageCircle, Eye } from 'lucide-react';
+import { TIMEFRAMES } from '../constants';
 import { useLanguage } from '../contexts/LanguageContext';
 import { TradeService } from '../services/api';
+import TradeDetail from './TradeDetail';
 
 interface TradeCenterProps {
   currentUser: User;
   trades: Trade[];
+  allUsers: User[]; 
   setTrades: React.Dispatch<React.SetStateAction<Trade[]>>;
   initialTradeId?: string | null;
   onTradeClosed?: () => void;
@@ -19,16 +18,20 @@ interface TradeCenterProps {
   onUpdateTrade: (trade: Trade) => void;
 }
 
-const TradeCenter: React.FC<TradeCenterProps> = ({ currentUser, trades, setTrades, initialTradeId, onTradeClosed, onUpdateUser, onNavigateToProfile, onUpdateTrade }) => {
+const TradeCenter: React.FC<TradeCenterProps> = ({ currentUser, trades, allUsers, setTrades, initialTradeId, onTradeClosed, onUpdateUser, onNavigateToProfile, onUpdateTrade }) => {
   const [view, setView] = useState<'feed' | 'upload'>('feed');
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null); // Detail view state
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null); 
   const [outcomeFilter, setOutcomeFilter] = useState<'all' | 'wins' | 'losses'>('all');
-  const [userFilter, setUserFilter] = useState<string>('all'); // 'all', 'following', or specific userId
+  const [userFilter, setUserFilter] = useState<string>('all');
   const [pairFilter, setPairFilter] = useState<string>('all');
+  
+  // --- FIXED: Restored the missing state variable ---
   const [isReviewing, setIsReviewing] = useState(false);
+  // -------------------------------------------------
+
   const { t } = useLanguage();
   
-  // Effect to handle deep linking from notifications or other parts of app
+  // Handle Deep Linking
   useEffect(() => {
     if (initialTradeId) {
         const trade = trades.find(t => t.id === initialTradeId);
@@ -37,6 +40,16 @@ const TradeCenter: React.FC<TradeCenterProps> = ({ currentUser, trades, setTrade
         }
     }
   }, [initialTradeId, trades]);
+
+  // Handle Background Updates
+  useEffect(() => {
+      if (selectedTrade) {
+          const updatedVersion = trades.find(t => t.id === selectedTrade.id);
+          if (updatedVersion && updatedVersion !== selectedTrade) {
+              setSelectedTrade(updatedVersion);
+          }
+      }
+  }, [trades]);
 
   const handleCloseDetail = () => {
     setSelectedTrade(null);
@@ -53,17 +66,32 @@ const TradeCenter: React.FC<TradeCenterProps> = ({ currentUser, trades, setTrade
     }
     onUpdateUser({ ...currentUser, following: newFollowing });
   };
-  
+
+  const handleLike = (e: React.MouseEvent, trade: Trade) => {
+    e.stopPropagation(); 
+    
+    const isLiked = trade.likes?.includes(currentUser.id);
+    const newLikes = isLiked 
+        ? (trade.likes || []).filter(id => id !== currentUser.id)
+        : [...(trade.likes || []), currentUser.id];
+    
+    onUpdateTrade({ ...trade, likes: newLikes });
+  };
+
+  const handleDetailUpdate = (updatedTrade: Trade) => {
+      setSelectedTrade(updatedTrade);
+      onUpdateTrade(updatedTrade);
+  };
+
   // Upload State
   const [pair, setPair] = useState('XAUUSD');
-  const [strategy, setStrategy] = useState<TradeStrategy>('Breakout'); // Strategy State
-  const [timeframe, setTimeframe] = useState(TIMEFRAMES[1]); // Default to 5m
+  const [strategy, setStrategy] = useState<TradeStrategy>('Breakout');
+  const [timeframe, setTimeframe] = useState(TIMEFRAMES[1]);
   const [type, setType] = useState<'BUY' | 'SELL'>('BUY');
   const [entry, setEntry] = useState('');
   const [exit, setExit] = useState('');
   const [sl, setSl] = useState('');
   
-  // Dates
   const now = new Date();
   const oneHourAgo = new Date(now.getTime() - 3600000);
   const toLocalISO = (d: Date) => d.toISOString().slice(0, 16);
@@ -73,18 +101,16 @@ const TradeCenter: React.FC<TradeCenterProps> = ({ currentUser, trades, setTrade
   
   const [notes, setNotes] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [postPrivacy, setPostPrivacy] = useState<'public' | 'private'>(currentUser.privacy); // Default to user preference
+  const [postPrivacy, setPostPrivacy] = useState<'public' | 'private'>(currentUser.privacy);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Get available pairs for filter
   const availablePairs = useMemo(() => Array.from(new Set(trades.map(t => t.pair))), [trades]);
-const handleUpload = async (e: React.FormEvent) => {
+
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    // REMOVED: setIsReviewing(true); -> We don't need to show "Analysis in progress" anymore
+    setIsReviewing(true); // Show loading state on button
 
     try {
-        // 1. Prepare Data
         const entryPrice = parseFloat(entry);
         const exitPrice = parseFloat(exit);
         const slPrice = parseFloat(sl);
@@ -93,12 +119,8 @@ const handleUpload = async (e: React.FormEvent) => {
         const openTs = new Date(openTime).getTime();
         const closeTs = new Date(closeTime).getTime();
 
-        // 2. HANDLE IMAGE (Real Upload)
         let publicImageUrl = undefined;
-        // Note: We don't need base64ForAI anymore since we aren't calling Gemini here
-
         if (selectedImage) {
-            // Upload to Firebase Storage for the App
             publicImageUrl = await TradeService.uploadImage(selectedImage);
         }
 
@@ -115,7 +137,7 @@ const handleUpload = async (e: React.FormEvent) => {
             pnl,
             strategy,
             notes,
-            status: TradeStatus.PENDING, // <--- Stays PENDING until you review it
+            status: TradeStatus.PENDING,
             openTime: openTs,
             closeTime: closeTs,
             timestamp: closeTs,
@@ -124,15 +146,9 @@ const handleUpload = async (e: React.FormEvent) => {
             comments: []
         };
 
-        // --- REMOVED: AUTOMATIC AI REVIEW BLOCK --- 
-        // The trade is now pure "user input" and waits for admin.
-
-        // 3. SAVE TO DATABASE
         await TradeService.createTrade(newTrade);
 
-        // 4. Update UI
         setTrades([newTrade, ...trades]); 
-        // REMOVED: setIsReviewing(false);
         setView('feed');
         
         // Reset form
@@ -141,11 +157,11 @@ const handleUpload = async (e: React.FormEvent) => {
     } catch (error) {
         console.error("Upload Error", error);
         alert("Failed to publish trade. Check console.");
-        // REMOVED: setIsReviewing(false);
+    } finally {
+        setIsReviewing(false); // Hide loading state
     }
   };
 
-  // Render detail view if selected
   if (selectedTrade) {
       return (
         <TradeDetail 
@@ -153,30 +169,26 @@ const handleUpload = async (e: React.FormEvent) => {
             currentUser={currentUser}
             onBack={handleCloseDetail} 
             onNavigateToProfile={onNavigateToProfile}
-            onUpdateTrade={onUpdateTrade}
+            onUpdateTrade={handleDetailUpdate} 
         />
       );
   }
 
-  // Filter Logic
   const filteredTrades = trades.filter(t => {
-    // 1. Outcome Filter
     if (outcomeFilter === 'wins' && t.pnl <= 0) return false;
     if (outcomeFilter === 'losses' && t.pnl > 0) return false;
 
-    // 2. User Filter
     if (userFilter === 'following') {
         if (!currentUser.following.includes(t.userId)) return false;
     } else if (userFilter !== 'all') {
         if (t.userId !== userFilter) return false;
     }
 
-    // 3. Pair Filter
     if (pairFilter !== 'all' && t.pair !== pairFilter) return false;
 
-    // 4. Privacy / Visibility (simplified for demo)
     if (userFilter === 'all') {
-        const tradeOwner = MOCK_USERS.find(u => u.id === t.userId);
+        // Use Real Users for lookup
+        const tradeOwner = allUsers.find(u => u.id === t.userId);
         if (t.userId === currentUser.id) return true;
         return tradeOwner ? tradeOwner.privacy === 'public' : true;
     }
@@ -216,7 +228,6 @@ const handleUpload = async (e: React.FormEvent) => {
           </div>
 
           <form onSubmit={handleUpload} className="space-y-8">
-             {/* Row 1: Basic Info */}
              <div className="grid grid-cols-3 gap-6">
                 <div>
                     <label className="block text-slate-400 mb-2 text-xs uppercase font-bold tracking-wider">{t('trade.pair')}</label>
@@ -267,7 +278,6 @@ const handleUpload = async (e: React.FormEvent) => {
                 </div>
              </div>
              
-             {/* Type Buttons */}
              <div>
                 <label className="block text-slate-400 mb-2 text-xs uppercase font-bold tracking-wider">{t('trade.direction')}</label>
                 <div className="flex gap-4">
@@ -288,7 +298,6 @@ const handleUpload = async (e: React.FormEvent) => {
                 </div>
             </div>
 
-             {/* Row 2: Price Data */}
              <div className="grid grid-cols-3 gap-6">
                  <div>
                     <label className="block text-slate-400 mb-2 text-xs uppercase font-bold tracking-wider">{t('trade.entry')}</label>
@@ -328,7 +337,6 @@ const handleUpload = async (e: React.FormEvent) => {
                  </div>
              </div>
 
-             {/* Row 3: Time Data */}
              <div className="grid grid-cols-2 gap-6">
                  <div>
                     <label className="block text-slate-400 mb-2 text-xs uppercase font-bold tracking-wider">{t('trade.open_time')}</label>
@@ -408,24 +416,20 @@ const handleUpload = async (e: React.FormEvent) => {
                 disabled={isReviewing}
                 className="w-full py-4 bg-yellow-500 text-dark-900 text-lg font-black rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
              >
-                {isReviewing ? 'Analysis in Progress...' : t('trade.submit')}
+                {isReviewing ? 'Publishing...' : t('trade.submit')}
              </button>
           </form>
         </div>
       ) : (
         <div className="space-y-8">
-            {/* Filters */}
             <div className="flex flex-col gap-4 mb-8">
-                {/* Type Filter */}
                 <div className="flex gap-4 border-b border-slate-800 pb-4 overflow-x-auto">
                     <button onClick={() => setOutcomeFilter('all')} className={`px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${outcomeFilter === 'all' ? 'bg-white text-dark-900 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'text-slate-500 hover:text-white'}`}>{t('dash.filter_all')}</button>
                     <button onClick={() => setOutcomeFilter('wins')} className={`px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${outcomeFilter === 'wins' ? 'bg-green-500 text-dark-900 shadow-[0_0_15px_rgba(34,197,94,0.4)]' : 'text-slate-500 hover:text-green-400'}`}>{t('dash.filter_win')}</button>
                     <button onClick={() => setOutcomeFilter('losses')} className={`px-6 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${outcomeFilter === 'losses' ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'text-slate-500 hover:text-red-400'}`}>{t('dash.filter_loss')}</button>
                 </div>
                 
-                {/* Secondary Filters */}
                 <div className="flex flex-wrap gap-2 items-center">
-                    {/* User Filter */}
                     <div className="flex items-center bg-dark-800 rounded-xl p-1 border border-slate-700">
                         <span className="text-[10px] font-bold text-slate-500 uppercase px-2">{t('trade.filter_user')}</span>
                         <button 
@@ -442,7 +446,6 @@ const handleUpload = async (e: React.FormEvent) => {
                         </button>
                     </div>
 
-                    {/* Pair Filter Dropdown */}
                     <div className="relative group">
                         <Bitcoin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={14} />
                         <select 
@@ -469,14 +472,12 @@ const handleUpload = async (e: React.FormEvent) => {
                             className="glass-panel-hover rounded-2xl p-0 overflow-hidden cursor-pointer group border border-slate-800 hover:border-gold-500/30"
                         >
                             <div className="p-6">
-                                {/* Header */}
                                 <div className="flex justify-between items-start mb-6">
                                     <div className="flex items-center gap-4">
                                         <div className="relative">
                                             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-xl font-bold text-white border border-slate-600">
                                                 {trade.userName.charAt(0)}
                                             </div>
-                                            {/* Status Dot */}
                                             {trade.status === 'reviewed' && (
                                                 <div className="absolute -bottom-1 -right-1 bg-gold-500 text-dark-900 p-0.5 rounded-full border border-dark-900">
                                                     <Check size={12} />
@@ -514,7 +515,6 @@ const handleUpload = async (e: React.FormEvent) => {
                                     </div>
                                 </div>
 
-                                {/* Content */}
                                 <p className="text-slate-300 mb-6 line-clamp-2 text-sm leading-relaxed border-l-2 border-slate-700 pl-4">
                                     {trade.notes}
                                 </p>
@@ -529,7 +529,6 @@ const handleUpload = async (e: React.FormEvent) => {
                                     </div>
                                 )}
 
-                                {/* AI Review Snippet */}
                                 {trade.adminFeedback && (
                                     <div className="bg-gradient-to-r from-blue-900/20 to-transparent border-l-2 border-blue-500 p-3 mb-4 rounded-r-lg">
                                         <div className="flex items-center gap-2 text-blue-400 text-xs font-bold uppercase tracking-wider mb-1">
@@ -541,11 +540,13 @@ const handleUpload = async (e: React.FormEvent) => {
                                 )}
                             </div>
 
-                            {/* Footer Actions */}
                             <div className="bg-dark-800/50 px-6 py-3 flex items-center justify-between border-t border-slate-800/50 group-hover:border-gold-500/10 transition-colors">
                                 <div className="flex gap-6">
-                                    <button className="flex items-center gap-2 text-slate-400 hover:text-gold-500 transition-colors text-sm font-medium">
-                                        <ThumbsUp size={16} /> {trade.likes?.length || 0} Like
+                                    <button 
+                                        onClick={(e) => handleLike(e, trade)}
+                                        className={`flex items-center gap-2 transition-colors text-sm font-medium ${trade.likes?.includes(currentUser.id) ? 'text-gold-500' : 'text-slate-400 hover:text-white'}`}
+                                    >
+                                        <ThumbsUp size={16} fill={trade.likes?.includes(currentUser.id) ? 'currentColor' : 'none'}/> {trade.likes?.length || 0} Like
                                     </button>
                                     <button className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm font-medium">
                                         <MessageCircle size={16} /> {trade.comments?.length || 0} Discuss

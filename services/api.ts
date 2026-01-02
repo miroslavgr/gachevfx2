@@ -1,7 +1,7 @@
-import { User, RegistrationToken, UserRole,CourseLesson,CourseModule,UserCourseProgress } from '../types';
+import { User, RegistrationToken, UserRole,CourseLesson,CourseModule,UserCourseProgress,AppTranslations ,VideoResource,ChatMessage} from '../types';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
-import { collection, doc, getDoc, setDoc, getDocs, query, where, updateDoc, addDoc, orderBy, limit, deleteDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, getDocs, query, where, updateDoc, addDoc, orderBy, limit, deleteDoc,onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase';
 
@@ -170,6 +170,32 @@ export const AdminService = {
     }
 };
 
+export const TranslationService = {
+    getTranslations: async (): Promise<AppTranslations | null> => {
+        try {
+            const docRef = doc(db, "system", "translations");
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                return docSnap.data() as AppTranslations;
+            }
+            return null;
+        } catch (e) {
+            console.error("Failed to fetch translations:", e);
+            return null;
+        }
+    },
+    saveTranslations: async (translations: AppTranslations): Promise<boolean> => {
+        try {
+            await setDoc(doc(db, "system", "translations"), translations);
+            return true;
+        } catch (e) {
+            console.error("Failed to save translations:", e);
+            return false;
+        }
+    }
+};
+
+
 export const TradeService = {
     // A. Upload Image to Firebase Storage
     uploadImage: async (file: File): Promise<string> => {
@@ -195,7 +221,12 @@ export const TradeService = {
             return { success: false, message: e.message };
         }
     },
-
+updateTrade: async (tradeData: any): Promise<ApiResponse<any>> => {
+        try {
+            await setDoc(doc(db, "trades", tradeData.id), tradeData, { merge: true });
+            return { success: true, data: tradeData };
+        } catch (e: any) { return { success: false, message: e.message }; }
+    },
     // C. Fetch Real Trades (for the Feed)
     getTrades: async (): Promise<ApiResponse<any[]>> => {
         try {
@@ -253,97 +284,165 @@ export const OutlookService = {
     }
 };
 
-
-// services/api.ts
-
 export const CourseService = {
-    // 1. Get All Modules (The Curriculum)
     getModules: async (): Promise<ApiResponse<CourseModule[]>> => {
         try {
-            // Fetch modules from 'course_modules' collection
-            // We order by 'order' or 'id' to keep them in sequence
             const q = query(collection(db, "course_modules"), orderBy("id", "asc"));
             const querySnapshot = await getDocs(q);
-            
             const modules: CourseModule[] = [];
-            querySnapshot.forEach((doc) => {
-                modules.push(doc.data() as CourseModule);
-            });
+            querySnapshot.forEach((doc) => modules.push(doc.data() as CourseModule));
             return { success: true, data: modules };
-        } catch (e: any) {
-            console.error("Fetch Course Error", e);
-            return { success: false, message: e.message };
-        }
+        } catch (e: any) { return { success: false, message: e.message }; }
     },
     getAllContent: async (): Promise<ApiResponse<CourseLesson[]>> => {
         try {
             const q = query(collection(db, "course_content"), orderBy("order", "asc"));
             const querySnapshot = await getDocs(q);
             const content: CourseLesson[] = [];
-            querySnapshot.forEach((doc) => {
-                content.push(doc.data() as CourseLesson);
-            });
+            querySnapshot.forEach((doc) => content.push(doc.data() as CourseLesson));
             return { success: true, data: content };
-        } catch (e: any) {
-            return { success: false, message: e.message };
-        }
+        } catch (e: any) { return { success: false, message: e.message }; }
     },
-    // 2. Save User Progress (Mark Lesson as Complete)
     updateProgress: async (userId: string, progress: UserCourseProgress): Promise<ApiResponse<any>> => {
         try {
-            // Save to a sub-collection: users/{uid}/progress/course_main
             await setDoc(doc(db, "users", userId, "progress", "course_main"), progress);
             return { success: true };
-        } catch (e: any) {
-            return { success: false, message: e.message };
-        }
+        } catch (e: any) { return { success: false, message: e.message }; }
     },
-
-    // 3. Get User Progress
     getProgress: async (userId: string): Promise<UserCourseProgress | null> => {
         try {
             const docRef = doc(db, "users", userId, "progress", "course_main");
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                return docSnap.data() as UserCourseProgress;
-            }
+            if (docSnap.exists()) return docSnap.data() as UserCourseProgress;
             return null;
-        } catch (e) {
-            console.error(e);
-            return null;
-        }
+        } catch (e) { return null; }
     },
-
-    // 4. (ADMIN ONLY) Migrate Mock Data to DB
     seedCourseData: async (modules: CourseModule[]) => {
         try {
-            for (const mod of modules) {
-                await setDoc(doc(db, "course_modules", mod.id), mod);
-            }
-            console.log("Migration Complete!");
+            for (const mod of modules) { await setDoc(doc(db, "course_modules", mod.id), mod); }
             return { success: true };
+        } catch (e: any) { return { success: false, message: e.message }; }
+    },
+    saveModule: async (module: CourseModule) => {
+        try {
+            await setDoc(doc(db, "course_modules", module.id), module);
+        } catch (e) { console.error("Error saving module:", e); }
+    },
+    deleteModule: async (moduleId: string) => {
+        try {
+            await deleteDoc(doc(db, "course_modules", moduleId));
+        } catch (e) { console.error("Error deleting module:", e); }
+    },
+    saveContent: async (content: CourseLesson) => {
+        try {
+            // Firestore crashes if you pass 'undefined' values.
+            await setDoc(doc(db, "course_content", content.id), content);
+        } catch (e) { 
+            console.error("Error saving content:", e); 
+            // Important: Throw or handle this so the UI knows
+        }
+    },
+    deleteContent: async (contentId: string) => {
+        try {
+            await deleteDoc(doc(db, "course_content", contentId));
+        } catch (e) { console.error("Error deleting content:", e); }
+    }
+};
+
+export const UserService = {
+    getAll: async (): Promise<ApiResponse<User[]>> => {
+        try {
+            const q = query(collection(db, "users"));
+            const snapshot = await getDocs(q);
+            const users = snapshot.docs.map(d => d.data() as User);
+            return { success: true, data: users };
         } catch (e: any) {
             return { success: false, message: e.message };
         }
     },
-
-    saveModule: async (module: CourseModule) => {
-        await setDoc(doc(db, "course_modules", module.id), module);
-    },
-
-    // Delete a Module
-    deleteModule: async (moduleId: string) => {
-        await deleteDoc(doc(db, "course_modules", moduleId));
-    },
-
-    // Save/Update a Content Item (Lesson)
-    saveContent: async (content: CourseLesson) => {
-        await setDoc(doc(db, "course_content", content.id), content);
-    },
-
-    // Delete a Content Item
-    deleteContent: async (contentId: string) => {
-        await deleteDoc(doc(db, "course_content", contentId));
+    updateUser: async (user: User): Promise<ApiResponse<User>> => {
+        try {
+            await setDoc(doc(db, "users", user.id), user, { merge: true });
+            return { success: true, data: user };
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
     }
+};
 
+export const VideoService = {
+    getAll: async (): Promise<ApiResponse<VideoResource[]>> => {
+        try {
+            const q = query(collection(db, "videos"), orderBy("timestamp", "desc"));
+            const snapshot = await getDocs(q);
+            const videos = snapshot.docs.map(d => d.data() as VideoResource);
+            return { success: true, data: videos };
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
+    },
+    save: async (video: VideoResource): Promise<ApiResponse<VideoResource>> => {
+        try {
+            await setDoc(doc(db, "videos", video.id), video);
+            return { success: true, data: video };
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
+    },
+    uploadVideo: async (file: Blob | File): Promise<string> => {
+        try {
+            const filename = `videos/${Date.now()}_recording.webm`;
+            const storageRef = ref(storage, filename);
+            const snapshot = await uploadBytes(storageRef, file);
+            return await getDownloadURL(snapshot.ref);
+        } catch (e) {
+            throw new Error("Video upload failed");
+        }
+    }
+};
+export const ChatService = {
+    sendMessage: async (message: ChatMessage): Promise<ApiResponse<any>> => {
+        try {
+            await setDoc(doc(db, "messages", message.id), message);
+            return { success: true };
+        } catch (e: any) {
+            console.error("Send Message Error", e);
+            return { success: false, message: e.message };
+        }
+    },
+
+    uploadImage: async (file: File): Promise<string> => {
+        try {
+            const storageRef = ref(storage, `chat_images/${Date.now()}_${file.name}`);
+            const snapshot = await uploadBytes(storageRef, file);
+            return await getDownloadURL(snapshot.ref);
+        } catch (e) {
+            throw new Error("Image upload failed");
+        }
+    },
+
+    subscribeToChannel: (channelId: string, callback: (messages: ChatMessage[]) => void) => {
+        // FIX: Removed 'orderBy' to avoid "Missing Index" error.
+        // We will sort client-side instead.
+        const q = query(
+            collection(db, "messages"), 
+            where("channelId", "==", channelId),
+            limit(100)
+        );
+
+        return onSnapshot(q, (snapshot) => {
+            const msgs: ChatMessage[] = [];
+            snapshot.forEach((doc) => {
+                msgs.push(doc.data() as ChatMessage);
+            });
+            // Client-side sort
+            msgs.sort((a, b) => a.timestamp - b.timestamp);
+            callback(msgs);
+        }, (error) => {
+            console.error("Chat Listener Error:", error);
+            if (error.code === 'permission-denied') {
+                alert("Database permission denied. Check Firestore Rules.");
+            }
+        });
+    }
 };

@@ -1,11 +1,10 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Trade, TradeStatus, MentorOutlook, OutlookType, RegistrationToken } from '../types';
-import { Shield, Clock, CheckCircle, XCircle, Edit3, Save, Plus, Trash2, Zap, TrendingUp, TrendingDown, Minus, Calendar, ChevronDown, Activity, ArrowUpRight, Globe, Sun, Moon, Mic, Square, Play, RefreshCw, X, Search, Filter, ChevronUp, Target, Brain, Key, Copy } from 'lucide-react';
+import { Shield, Clock, CheckCircle, XCircle, Edit3, Save, Plus, Trash2, Zap, TrendingUp, TrendingDown, Minus, Calendar, ChevronDown, Activity, ArrowUpRight, Globe, Sun, Moon, Mic, Square, Play, RefreshCw, X, Search, Filter, ChevronUp, Target, Brain, Key, Copy, Languages } from 'lucide-react';
 import { reviewTrade } from '../services/geminiService';
-import { AdminService } from '../services/api';
+import { AdminService, OutlookService } from '../services/api';
 import { TIMEFRAMES } from '../constants';
-import { OutlookService } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface AdminPanelProps {
   trades: Trade[];
@@ -17,7 +16,7 @@ interface AdminPanelProps {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ trades, setTrades, outlooks, setOutlooks, mentorInstruction, setMentorInstruction }) => {
-  const [activeTab, setActiveTab] = useState<'reviews' | 'outlook' | 'access'>('reviews');
+  const [activeTab, setActiveTab] = useState<'reviews' | 'outlook' | 'access' | 'translations'>('reviews');
   const [reviewNote, setReviewNote] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
@@ -25,6 +24,46 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ trades, setTrades, outlooks, se
   // --- ACCESS TOKENS STATE ---
   const [tokens, setTokens] = useState<RegistrationToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
+
+  // --- TRANSLATION STATE ---
+  const { translations, updateTranslations } = useLanguage();
+  const [editingLang, setEditingLang] = useState<string>('en');
+  const [localTranslations, setLocalTranslations] = useState(translations);
+  const [searchTrans, setSearchTrans] = useState('');
+  const [isSavingTrans, setIsSavingTrans] = useState(false);
+
+  // Update local translation state when global changes (e.g. initial load)
+  useEffect(() => {
+      setLocalTranslations(translations);
+  }, [translations]);
+
+  const handleTransChange = (key: string, value: string) => {
+      setLocalTranslations(prev => ({
+          ...prev,
+          [editingLang]: {
+              ...prev[editingLang],
+              [key]: value
+          }
+      }));
+  };
+
+  const saveTrans = async () => {
+      setIsSavingTrans(true);
+      await updateTranslations(localTranslations);
+      setIsSavingTrans(false);
+      alert("Translations saved successfully!");
+  };
+
+  const addLanguage = () => {
+      const code = prompt("Enter new language code (e.g. 'es', 'fr'):");
+      if (code && !localTranslations[code]) {
+          setLocalTranslations(prev => ({
+              ...prev,
+              [code]: { ...prev['en'] } // Copy English as template
+          }));
+          setEditingLang(code);
+      }
+  };
 
   // --- FILTER STATES ---
   const [searchQuery, setSearchQuery] = useState('');
@@ -367,9 +406,75 @@ const saveOutlook = async () => {
               >
                 <Key size={14} /> Access Keys
               </button>
+              <button 
+                onClick={() => setActiveTab('translations')}
+                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'translations' ? 'bg-gold-500 text-dark-900 shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Languages size={14} /> Translations
+              </button>
           </div>
       </div>
 
+      {activeTab === 'translations' && (
+          <div className="space-y-6">
+              <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl">
+                  <div className="flex items-center gap-4">
+                      <select 
+                          value={editingLang}
+                          onChange={(e) => setEditingLang(e.target.value)}
+                          className="bg-dark-900 border border-slate-700 rounded p-2 text-white font-bold outline-none uppercase"
+                      >
+                          {Object.keys(localTranslations).map(lang => (
+                              <option key={lang} value={lang}>{lang}</option>
+                          ))}
+                      </select>
+                      <button onClick={addLanguage} className="text-sm font-bold text-gold-500 flex items-center gap-1 hover:text-white">
+                          <Plus size={14}/> Add Language
+                      </button>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                            <input 
+                                type="text"
+                                placeholder="Filter keys..."
+                                value={searchTrans}
+                                onChange={(e) => setSearchTrans(e.target.value)}
+                                className="bg-dark-900 border border-slate-700 rounded-lg py-2 pl-9 pr-4 text-xs text-white outline-none focus:border-gold-500 w-48"
+                            />
+                        </div>
+                        <button 
+                            onClick={saveTrans}
+                            disabled={isSavingTrans}
+                            className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+                        >
+                            <Save size={18} /> {isSavingTrans ? 'Saving...' : 'Save Changes'}
+                        </button>
+                  </div>
+              </div>
+
+              <div className="glass-panel p-4 rounded-xl overflow-hidden">
+                   <div className="max-h-[70vh] overflow-y-auto space-y-1 pr-2">
+                       {Object.keys(localTranslations['en'] || {}).filter(k => k.toLowerCase().includes(searchTrans.toLowerCase()) || (localTranslations[editingLang]?.[k] || '').toLowerCase().includes(searchTrans.toLowerCase())).map(key => (
+                           <div key={key} className="grid grid-cols-3 gap-4 items-center p-3 border-b border-slate-800 hover:bg-slate-800/30">
+                               <div className="font-mono text-xs text-slate-500 break-all">{key}</div>
+                               <div className="col-span-2">
+                                   <input 
+                                       type="text"
+                                       value={localTranslations[editingLang]?.[key] || ''}
+                                       onChange={(e) => handleTransChange(key, e.target.value)}
+                                       className="w-full bg-dark-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:border-gold-500"
+                                       placeholder={localTranslations['en'][key]} // Hint from English
+                                   />
+                               </div>
+                           </div>
+                       ))}
+                   </div>
+              </div>
+          </div>
+      )}
+
+      {/* ... (Existing Tabs: Reviews, Outlook, Access - KEEP AS IS) ... */}
       {activeTab === 'reviews' && (
         <div className="space-y-6">
             
