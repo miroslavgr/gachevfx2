@@ -422,12 +422,10 @@ export const ChatService = {
     },
 
     subscribeToChannel: (channelId: string, callback: (messages: ChatMessage[]) => void) => {
-        // FIX: Removed 'orderBy' to avoid "Missing Index" error.
-        // We will sort client-side instead.
         const q = query(
             collection(db, "messages"), 
             where("channelId", "==", channelId),
-            limit(100)
+    
         );
 
         return onSnapshot(q, (snapshot) => {

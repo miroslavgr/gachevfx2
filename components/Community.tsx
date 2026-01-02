@@ -31,7 +31,7 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
   const [messages, setMessages] = useState<ChatMessage[]>([]); // <--- No Mocks
   const [inputText, setInputText] = useState('');
   const { t } = useLanguage();
-  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const chatFileRef = useRef<HTMLInputElement>(null);
@@ -79,6 +79,10 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
       return () => unsubscribe();
   }, [activeChannel.id]);
   // -------------------------------------------
+
+  useEffect(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
       if (!channels.find(c => c.id === activeChannel.id) && channels.length > 0) {
@@ -712,6 +716,9 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
                             </div>
                         </div>
                     ))}
+                    {/* INVISIBLE ELEMENT TO SCROLL TO */}
+                    <div ref={messagesEndRef} />
+
                 </div>
 
                 <div className="p-4 bg-dark-800 border-t border-slate-700 relative">
