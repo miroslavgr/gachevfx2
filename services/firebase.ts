@@ -4,6 +4,7 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
+import { initializeFirestore } from 'firebase/firestore';
 
 // --- FIREBASE CONFIGURATION ---
 // Replace the values below with your actual Firebase project configuration.
@@ -21,7 +22,9 @@ const app = initializeApp(firebaseConfig);
 
 // Export Services
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+    ignoreUndefinedProperties: true 
+});
 export const storage = getStorage(app);
 export const functions = getFunctions(app); 
 

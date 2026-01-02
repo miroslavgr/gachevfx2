@@ -225,7 +225,7 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
   };
 
   // --- UPDATED SEND HANDLER ---
-  const handleSend = async (e: React.FormEvent) => {
+ const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !imageFile) return;
 
@@ -244,18 +244,32 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
       userId: currentUser.id,
       userName: currentUser.name,
       content: inputText,
-      imageUrl: publicImageUrl,
+      // FIX: THIS LINE. We use spread syntax to only add 'imageUrl' if it exists.
+      // Passing 'undefined' causes Firestore setDoc() to crash immediately.
+      ...(publicImageUrl ? { imageUrl: publicImageUrl } : {}),
       timestamp: Date.now(),
       channelId: activeChannel.id
     };
 
-    // Send to API (Listeners will update UI)
-    await ChatService.sendMessage(newMessage);
+    // 1. Optimistic Update (Show on screen immediately)
+    setMessages(prev => [...prev, newMessage]);
 
+    // 2. Clear Input
     setInputText('');
     setAttachedImage(null);
     setImageFile(null);
     setShowSuggestions(false);
+
+    // 3. Send to API
+    const result = await ChatService.sendMessage(newMessage);
+    
+    // 4. Handle Failure (e.g. revert UI if database rejects it)
+    if (!result.success) {
+        console.error("Failed to save message to DB:", result.message);
+        // Optional: Remove the failed message from the list so user knows it failed
+        setMessages(prev => prev.filter(m => m.id !== newMessage.id));
+        alert("Message failed to send. Check console for Firestore error.");
+    }
   };
 
   const handleCreateChannel = () => {
@@ -454,38 +468,88 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
       }
       return [];
   };
-
-  const renderMessageContent = (content: string) => {
-      const words = content.split(/(\s+)/);
-      return words.map((word, i) => {
+const renderMessageContent = (content: string) => {
+      // Split by whitespace to process each word
+      return content.split(/(\s+)/).map((word, i) => {
+          
+          // 1. Handle User Mentions (@Name)
           if (word.match(/^@\w+/)) {
-              const cleanName = word.substring(1).replace(/[^a-zA-Z0-9 ]/g, ''); 
-              // Look up in Real Users
-              const user = allUsers.find(u => u.name.replace(/\s/g, '') === cleanName || u.name.split(' ')[0] === cleanName);
-              if (user) {
+              const name = word.substring(1).replace(/[^a-zA-Z0-9 ]/g, '');
+              const u = allUsers.find(u => u.name.replace(/\s/g, '') === name || u.name.split(' ')[0] === name);
+              
+              if (u) {
                    return (
-                       <span key={i} onClick={() => onNavigateToProfile(user.id)} className="text-gold-500 font-bold cursor-pointer hover:underline bg-gold-500/10 rounded px-1">{word}</span>
+                       <span key={i} onClick={() => onNavigateToProfile(u.id)} className="text-gold-500 font-bold cursor-pointer hover:underline bg-gold-500/10 rounded px-1">{word}</span>
                    );
               }
               return <span key={i} className="text-gold-500/70 font-bold">{word}</span>;
           }
-          if (word.match(/^#t[a-zA-Z0-9]+/)) {
-               const tradeId = word.substring(1).replace(/[^a-zA-Z0-9]/g, '');
-               const trade = trades.find(t => t.id === tradeId);
-               if (trade) {
+
+          // 2. Handle Trade References (#ID) - RICH CARD
+          // Regex checks for # followed by letters/numbers
+          const tradeMatch = word.match(/^#([a-zA-Z0-9]+)/);
+          if (tradeMatch) {
+               const tid = tradeMatch[1]; // Extract ID without '#'
+               const t = trades.find(tr => tr.id === tid);
+               
+               if (t) {
                    return (
-                       <span key={i} onClick={() => onNavigateToTrade(tradeId)} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-xs cursor-pointer hover:bg-blue-500/20 transition-all align-middle mx-1">
-                           <span className={`w-1.5 h-1.5 rounded-full ${trade.pnl > 0 ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                           <span className="font-bold text-blue-300">{trade.pair}</span>
-                       </span>
+                       <div key={i} onClick={() => onNavigateToTrade(tid)} className="inline-block align-middle my-1 mx-1 w-64 bg-slate-800 rounded-xl border border-slate-700 overflow-hidden cursor-pointer hover:border-gold-500 hover:shadow-lg hover:scale-[1.02] transition-all group select-none relative z-10">
+                           {/* PnL Color Strip */}
+                           <div className={`h-1 w-full ${t.pnl >= 0 ? 'bg-green-500' : 'bg-red-500'}`} />
+                           
+                           <div className="p-3">
+                               {/* Header: Pair & Badge */}
+                               <div className="flex justify-between items-start mb-2">
+                                   <div>
+                                       <span className="block font-black text-white text-sm tracking-wide">{t.pair}</span>
+                                       <span className="text-[10px] text-slate-400 font-mono uppercase">{t.strategy}</span>
+                                   </div>
+                                   <div className={`flex flex-col items-end text-xs font-bold ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                       <span>{t.pnl > 0 ? '+' : ''}{t.pnl} pips</span>
+                                       <span className="text-[9px] text-slate-500 font-normal">{t.timeframe}</span>
+                                   </div>
+                               </div>
+
+                               {/* Prices */}
+                               <div className="flex items-center justify-between bg-dark-900/50 rounded-lg p-2 mb-2 border border-slate-700/50">
+                                   <div className="text-center">
+                                       <span className="text-[8px] text-slate-500 uppercase block">Entry</span>
+                                       <span className="text-[10px] text-white font-mono">{t.entryPrice}</span>
+                                   </div>
+                                   <div className="text-slate-600">➜</div>
+                                   <div className="text-center">
+                                       <span className="text-[8px] text-slate-500 uppercase block">Exit</span>
+                                       <span className="text-[10px] text-white font-mono">{t.exitPrice}</span>
+                                   </div>
+                               </div>
+
+                               {/* Footer: User & Type */}
+                               <div className="flex justify-between items-center pt-1">
+                                   <div className="flex items-center gap-1.5 opacity-80">
+                                       <div className="w-4 h-4 rounded-full bg-slate-600 flex items-center justify-center text-[8px] text-white font-bold">
+                                           {t.userName.charAt(0)}
+                                       </div>
+                                       <span className="text-[10px] text-slate-400 font-medium truncate max-w-[80px]">{t.userName}</span>
+                                   </div>
+                                   
+                                   <div className="flex items-center gap-2">
+                                       {t.imageUrl && <ImageIcon size={12} className="text-gold-500" />}
+                                       <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${t.type === 'BUY' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                                           {t.type}
+                                       </span>
+                                   </div>
+                               </div>
+                           </div>
+                       </div>
                    );
                }
-               return <span key={i} className="text-blue-400 font-bold">{word}</span>;
           }
+          
+          // Regular text
           return word;
       });
   };
-
   return (
     <div className="flex h-[calc(100vh-80px)] glass-panel rounded-2xl overflow-hidden border border-slate-700">
        <div className="w-64 bg-dark-800 border-r border-slate-700 flex flex-col hidden md:flex">
@@ -722,7 +786,15 @@ const Community: React.FC<CommunityProps> = ({ currentUser, trades, channels, al
                 </div>
 
                 <div className="p-4 bg-dark-800 border-t border-slate-700 relative">
-                    
+             {/* LIVE PREVIEW - Only if a trade tag (e.g. #123) is detected */}
+                    {inputText.match(/#[a-zA-Z0-9]+/) && (
+                        <div className="mb-3 p-3 bg-slate-900/50 rounded-xl border border-slate-700/50 min-h-[44px] flex flex-wrap items-center gap-1.5 animate-in slide-in-from-bottom-2">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase mr-2 select-none self-start mt-1.5">Trade Preview:</span>
+                            <div className="flex-1 flex flex-wrap gap-1 items-center">
+                                {renderMessageContent(inputText)}
+                            </div>
+                        </div>
+                    )}
                     {showSuggestions && (
                         <div className="absolute bottom-full mb-2 left-4 w-96 bg-slate-800/95 backdrop-blur-xl border border-slate-600 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200">
                             {/* ... Suggestion Box ... */}

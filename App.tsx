@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, UserRole, Trade, Notification, MentorOutlook, VideoResource, CourseModule, CourseContent, UserCourseProgress, Channel } from './types';
 import { MOCK_NOTIFICATIONS, MOCK_VIDEOS, CHANNELS } from './constants';
 import { onAuthStateChanged } from 'firebase/auth';
-import { AuthService, TradeService, OutlookService, CourseService, UserService, VideoService } from './services/api';
+import { AuthService, TradeService, OutlookService, CourseService, UserService, VideoService ,ChannelService} from './services/api';
 import { auth, db } from './services/firebase';
 import { collection, query, getDocs } from 'firebase/firestore';
 import Layout from './components/Layout';
@@ -54,7 +54,7 @@ const App: React.FC = () => {
         return () => unsubscribe(); 
   }, []);
 
-  const [channels, setChannels] = useState<Channel[]>(CHANNELS);
+    const [channels, setChannels] = useState<Channel[]>([]);
   const [courseModules, setCourseModules] = useState<CourseModule[]>([]);
   const [courseContent, setCourseContent] = useState<CourseContent[]>([]); 
   const [userProgress, setUserProgress] = useState<UserCourseProgress[]>([]);
@@ -85,7 +85,11 @@ const App: React.FC = () => {
           setVideos(videoRes.data);
       }
 
-      
+      const channelRes = await ChannelService.getAll();
+      if (channelRes.success && channelRes.data && channelRes.data.length > 0) {
+          setChannels(channelRes.data);
+      } 
+
       // 5. Load Course
       const courseRes = await CourseService.getModules(); 
       const contentRes = await CourseService.getAllContent();
@@ -221,12 +225,18 @@ const App: React.FC = () => {
       });
   };
 
-  const handleAddChannel = (channel: Channel) => {
+const handleAddChannel = async (channel: Channel) => {
+      // 1. Optimistic Update
       setChannels(prev => [...prev, channel]);
+      // 2. Save to DB
+      await ChannelService.createChannel(channel);
   };
 
-  const handleDeleteChannel = (channelId: string) => {
+const handleDeleteChannel = async (channelId: string) => {
+      // 1. Optimistic Update
       setChannels(prev => prev.filter(c => c.id !== channelId));
+      // 2. Delete from DB
+      await ChannelService.deleteChannel(channelId);
   };
 
   const renderPageContent = () => {

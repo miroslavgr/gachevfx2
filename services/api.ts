@@ -1,4 +1,4 @@
-import { User, RegistrationToken, UserRole,CourseLesson,CourseModule,UserCourseProgress,AppTranslations ,VideoResource,ChatMessage} from '../types';
+import { User, RegistrationToken, UserRole,CourseLesson,CourseModule,UserCourseProgress,AppTranslations ,VideoResource,ChatMessage,Channel} from '../types';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, setDoc, getDocs, query, where, updateDoc, addDoc, orderBy, limit, deleteDoc,onSnapshot } from 'firebase/firestore';
@@ -442,5 +442,39 @@ export const ChatService = {
                 alert("Database permission denied. Check Firestore Rules.");
             }
         });
+    }
+};
+
+export const ChannelService = {
+    // 1. Get All Channels
+    getAll: async (): Promise<ApiResponse<Channel[]>> => {
+        try {
+            const q = query(collection(db, "channels"));
+            const snapshot = await getDocs(q);
+            const channels = snapshot.docs.map(d => d.data() as Channel);
+            return { success: true, data: channels };
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
+    },
+
+    // 2. Create Channel
+    createChannel: async (channel: Channel): Promise<ApiResponse<Channel>> => {
+        try {
+            await setDoc(doc(db, "channels", channel.id), channel);
+            return { success: true, data: channel };
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
+    },
+
+    // 3. Delete Channel
+    deleteChannel: async (channelId: string): Promise<ApiResponse<any>> => {
+        try {
+            await deleteDoc(doc(db, "channels", channelId));
+            return { success: true };
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
     }
 };
