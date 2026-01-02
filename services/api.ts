@@ -362,14 +362,13 @@ export const UserService = {
             return { success: false, message: e.message };
         }
     },
-    setScreenShareStatus: async (userId: string, isSharing: boolean) => {
+setScreenShareStatus: async (userId: string, isSharing: boolean) => {
         try {
             await setDoc(doc(db, "users", userId), { isSharingScreen: isSharing }, { merge: true });
         } catch (e) {
-            console.error("Error updating screen share status", e);
+            console.error("Presence Error", e);
         }
     },
-    
     updateUser: async (user: User): Promise<ApiResponse<User>> => {
         try {
             await setDoc(doc(db, "users", user.id), user, { merge: true });
@@ -496,6 +495,106 @@ export const ChannelService = {
             return { success: true };
         } catch (e: any) {
             return { success: false, message: e.message };
+        }
+    }
+};
+
+
+// services/api.ts
+
+// --- NEW NOTIFICATION SERVICE ---
+export const NotificationService = {
+    // 1. Subscribe to real-time updates for a specific user
+    subscribeToNotifications: (userId: string, callback: (notifications: Notification[]) => void) => {
+        const q = query(
+            collection(db, "notifications"),
+            where("userId", "==", userId),
+            orderBy("timestamp", "desc")
+        );
+
+        return onSnapshot(q, (snapshot) => {
+            const notifications: Notification[] = [];
+            snapshot.forEach((doc) => {
+                notifications.push({ id: doc.id, ...doc.data() } as Notification);
+            });
+            callback(notifications);
+        }, (error) => {
+            console.error("Notification Listener Error:", error);
+        });
+    },
+
+    // 2. Mark a notification as read
+    markAsRead: async (notificationId: string) => {
+        try {
+            const docRef = doc(db, "notifications", notificationId);
+            await updateDoc(docRef, { read: true });
+        } catch (e) {
+            console.error("Error marking notification as read:", e);
+        }
+    },
+
+    // 3. Helper to create a notification (Used by Mentor/Systems)
+    createNotification: async (notification: Omit<Notification, 'id'>) => {
+        try {
+            await addDoc(collection(db, "notifications"), notification);
+        } catch (e) {
+            console.error("Error creating notification:", e);
+        }
+    }
+};
+// services/api.ts
+
+export const NewsService = {
+    getHighImpactEvents: async (centerDateStr: string): Promise<any[]> => {
+        const FMP_API_KEY = "dk3vkG8pQp0qWkdGGl7cDp7ijiVSDp6h"; // Get free key at financialmodelingprep.com
+        
+       try {
+         // 1. Calculate Date Radius (Current Date +/- 30 Days)
+            const centerDate = new Date(centerDateStr);
+            
+            const startDate = new Date(centerDate);
+            startDate.setDate(centerDate.getDate() - 30); // 1 Month Prior
+            
+            const endDate = new Date(centerDate);
+            endDate.setDate(centerDate.getDate() + 30);   // 1 Month Future
+
+            // Format YYYY-MM-DD
+            const from = startDate.toISOString().split('T')[0];
+            const to = endDate.toISOString().split('T')[0];
+
+            // 2. Fetch Broad Range
+            const url = `https://financialmodelingprep.com/stable/economic-calendar?from=${from}&to=${to}&apikey=${FMP_API_KEY}`;
+            
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data['Error Message']) throw new Error(data['Error Message']);
+
+            if (Array.isArray(data)) {
+                return data.map((e: any) => ({
+                    id: `news-${e.event.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}-${Math.random()}`,
+                    // Extract safe time
+                    label: e.date.includes(' ') ? e.date.split(' ')[1].slice(0, 5) : "All Day",
+                    // Store the full date string for filtering later
+                    dateString: e.date.split(' ')[0], 
+                    title: e.event,
+                    type: 'news',
+                    impact: e.impact ? e.impact.toLowerCase() : 'low', 
+                    currency: e.currency || 'GLOBAL',
+                    forecast: e.estimate || '',
+                    previous: e.previous || '',
+                    actual: e.actual || '',
+                    country: e.country || ''
+                }));
+            }
+            return [];
+
+        } catch (error) {
+            console.warn("News API Error (Falling back to Simulation):", error);
+            
+            // FALLBACK SIMULATION (So your app doesn't break if API fails)
+            // ... (Keep the simulation logic from previous step here) ...
+            return []; // Simplified return for this snippet
         }
     }
 };

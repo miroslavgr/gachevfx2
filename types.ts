@@ -116,6 +116,10 @@ export interface TimelineEvent {
   title: string;
   type: 'news' | 'mentor' | 'structure';
   impact?: 'high' | 'medium' | 'low';
+  currency?: string; // e.g. "USD"
+  forecast?: string; // e.g. "0.3%"
+  previous?: string; // e.g. "0.4%"
+  
 }
 
 export interface OutlookNote {

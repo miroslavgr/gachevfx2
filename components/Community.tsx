@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "../contexts/LanguageContext";
 import { VideoService, ChatService, UserService } from "../services/api";
-import Peer from 'simple-peer/simplepeer.min.js';
+import Peer from "simple-peer/simplepeer.min.js";
 
 interface CommunityProps {
   currentUser: User;
@@ -120,9 +120,9 @@ const Community: React.FC<CommunityProps> = ({
   );
 
   // Inside the Community component:
-const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-const peersRef = useRef<{ [key: string]: Peer.Instance }>({});
-const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const peersRef = useRef<{ [key: string]: Peer.Instance }>({});
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   // --- REAL-TIME PRESENCE ---
@@ -131,12 +131,12 @@ const remoteVideoRef = useRef<HTMLVideoElement>(null);
   // 1. Update my presence when channel changes
 
   useEffect(() => {
-      return () => {
-          // Close all peer connections on unmount/room change
-          Object.values(peersRef.current).forEach(peer => peer.destroy());
-          peersRef.current = {};
-          setRemoteStream(null);
-      };
+    return () => {
+      // Close all peer connections on unmount/room change
+      Object.values(peersRef.current).forEach((peer) => peer.destroy());
+      peersRef.current = {};
+      setRemoteStream(null);
+    };
   }, [activeChannel.id]);
 
   useEffect(() => {
@@ -161,36 +161,42 @@ const remoteVideoRef = useRef<HTMLVideoElement>(null);
   }, [activeChannel.id, currentUser.id]);
 
   // 2. Listen for other users in this channel
- useEffect(() => {
-      const unsubscribe = ChatService.subscribeToChannel(activeChannel.id, (newMessages) => {
-          const chatMsgs = newMessages.filter(m => {
-              // Check if message is a WebRTC signal
-              if (m.content.startsWith('{"type":"signal"')) {
-                  try {
-                      const data = JSON.parse(m.content);
-                      // Only process if it's meant for US
-                      if (data.to === currentUser.id) {
-                          handleIncomingSignal({ ...data, from: m.userId, userName: m.userName });
-                      }
-                  } catch (e) {
-                      console.error("Signal parse error", e);
-                  }
-                  return false; // HIDE signal from chat UI
+  useEffect(() => {
+    const unsubscribe = ChatService.subscribeToChannel(
+      activeChannel.id,
+      (newMessages) => {
+        const chatMsgs = newMessages.filter((m) => {
+          // DETECT WEBRTC SIGNALS (The "Handshake")
+          if (m.content.startsWith('{"type":"signal"')) {
+            try {
+              const data = JSON.parse(m.content);
+              // Only handle it if it is meant for ME
+              if (data.to === currentUser.id) {
+                handleIncomingSignal({ ...data, from: m.userId });
               }
-              return true; // SHOW normal chat messages
-          });
-          setMessages(chatMsgs);
-      });
-      return () => unsubscribe();
+            } catch (e) {
+              console.error("Signal error", e);
+            }
+            return false; // Hide this JSON "beep" from the chat UI
+          }
+          return true;
+        });
+        setMessages(chatMsgs);
+      }
+    );
+    return () => unsubscribe();
   }, [activeChannel.id, currentUser.id]);
 
   // --- 1. REAL-TIME MESSAGING SUBSCRIPTION ---
   useEffect(() => {
-      // Subscribe to messages when channel changes
-      const unsubscribe = ChatService.subscribeToChannel(activeChannel.id, (newMessages) => {
-          setMessages(newMessages);
-      });
-      return () => unsubscribe();
+    // Subscribe to messages when channel changes
+    const unsubscribe = ChatService.subscribeToChannel(
+      activeChannel.id,
+      (newMessages) => {
+        setMessages(newMessages);
+      }
+    );
+    return () => unsubscribe();
   }, [activeChannel.id]);
 
   useEffect(() => {
@@ -462,79 +468,85 @@ const remoteVideoRef = useRef<HTMLVideoElement>(null);
   // Use state messages instead of filter
   const channelMessages = messages;
   // --- PEER TO PEER LOGIC ---
-  const createPeer = (userIdToSignal: string, callerId: string, stream: MediaStream) => {
-      const peer = new Peer({ initiator: true, trickle: false, stream });
-      peer.on("signal", signal => {
-          // Send signal via Firestore/Chat (Signaling)
-          ChatService.sendMessage({
-              id: `sig-${Date.now()}`,
-              userId: currentUser.id,
-              userName: currentUser.name,
-              content: JSON.stringify({ type: 'signal', signal, to: userIdToSignal }),
-              channelId: activeChannel.id,
-              timestamp: Date.now()
-          });
+  const createPeer = (
+    userIdToSignal: string,
+    callerId: string,
+    stream: MediaStream
+  ) => {
+    const peer = new Peer({ initiator: true, trickle: false, stream });
+    peer.on("signal", (signal) => {
+      // Send signal via Firestore/Chat (Signaling)
+      ChatService.sendMessage({
+        id: `sig-${Date.now()}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        content: JSON.stringify({ type: "signal", signal, to: userIdToSignal }),
+        channelId: activeChannel.id,
+        timestamp: Date.now(),
       });
-      return peer;
+    });
+    return peer;
   };
 
   // Update toggleScreenShare to start the Peer handshake
   const toggleScreenShare = async () => {
-      if (isScreenSharing) {
-          screenStream?.getTracks().forEach(track => track.stop());
-          setScreenStream(null);
-          setIsScreenSharing(false);
-          await UserService.setScreenShareStatus(currentUser.id, false);
-      } else {
-          try {
-              const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-              setScreenStream(stream);
-              setIsScreenSharing(true);
-              await UserService.setScreenShareStatus(currentUser.id, true);
+    if (isScreenSharing) {
+      screenStream?.getTracks().forEach((track) => track.stop());
+      setScreenStream(null);
+      setIsScreenSharing(false);
+      await UserService.setScreenShareStatus(currentUser.id, false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+        });
+        setScreenStream(stream);
+        setIsScreenSharing(true);
+        await UserService.setScreenShareStatus(currentUser.id, true);
 
-              // Create peers for everyone else in the room
-              peers.forEach(peerUser => {
-                  const p = createPeer(peerUser.id, currentUser.id, stream);
-                  peersRef.current[peerUser.id] = p;
-              });
-          } catch (err) { alert("Failed to share."); }
+        // Create peers for everyone else in the room
+        peers.forEach((peerUser) => {
+          const p = createPeer(peerUser.id, currentUser.id, stream);
+          peersRef.current[peerUser.id] = p;
+        });
+      } catch (err) {
+        alert("Failed to share.");
       }
+    }
   };
   // --- WEBRTC SIGNALING HANDLERS ---
-  const handleIncomingSignal = (data: { signal: any, from: string, userName: string }) => {
-      // If we already have a peer for this user, signal them
-      if (peersRef.current[data.from]) {
-          peersRef.current[data.from].signal(data.signal);
-      } else {
-          // If no peer exists, create a "Receiver" peer
-          const peer = new Peer({ initiator: false, trickle: false });
-          
-          peer.on("signal", signal => {
-              // Send back our answer signal
-              ChatService.sendMessage({
-                  id: `sig-ans-${Date.now()}`,
-                  userId: currentUser.id,
-                  userName: currentUser.name,
-                  content: JSON.stringify({ type: 'signal', signal, to: data.from }),
-                  channelId: activeChannel.id,
-                  timestamp: Date.now()
-              });
-          });
 
-          peer.on("stream", stream => {
-              console.log("Received remote stream!");
-              setRemoteStream(stream);
-              if (remoteVideoRef.current) {
-                  remoteVideoRef.current.srcObject = stream;
-              }
-          });
+  const handleIncomingSignal = (data: { signal: any; from: string }) => {
+    if (peersRef.current[data.from]) {
+      peersRef.current[data.from].signal(data.signal);
+    } else {
+      // Create a new "Watching" peer
+      const peer = new Peer({ initiator: false, trickle: false });
 
-          peer.signal(data.signal);
-          peersRef.current[data.from] = peer;
-      }
+      peer.on("signal", (signal) => {
+        // Send "Answer" back to Streamer
+        ChatService.sendMessage({
+          id: `sig-ans-${Date.now()}`,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          content: JSON.stringify({ type: "signal", signal, to: data.from }),
+          channelId: activeChannel.id,
+          timestamp: Date.now(),
+        });
+      });
+
+      peer.on("stream", (stream) => {
+        console.log("Pixels Received!");
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = stream;
+        }
+      });
+
+      peer.signal(data.signal);
+      peersRef.current[data.from] = peer;
+    }
   };
 
-  
   const toggleRecording = () => {
     if (isRecording) {
       stopRecording();
@@ -542,7 +554,6 @@ const remoteVideoRef = useRef<HTMLVideoElement>(null);
       startRecording();
     }
   };
-
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
@@ -937,15 +948,16 @@ const remoteVideoRef = useRef<HTMLVideoElement>(null);
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <div className="flex-1 bg-dark-950 relative p-4 flex items-center justify-center overflow-hidden min-h-0">
               {/* Logic: Show video if YOU are sharing OR if any PEER has isSharingScreen === true */}
-         {(isScreenSharing || peers.some(p => (p as any).isSharingScreen)) ? (
+              {isScreenSharing ||
+              peers.some((p) => (p as any).isSharingScreen) ? (
                 <div className="w-full h-full max-h-full bg-black rounded-xl overflow-hidden border border-slate-700 relative flex items-center justify-center min-h-0">
-                    <video 
-                        ref={isScreenSharing ? videoRef : remoteVideoRef} 
-                        autoPlay 
-                        playsInline 
-                        muted={isScreenSharing} // Mute yourself, hear others
-                        className="max-w-full max-h-full object-contain" 
-                    />
+                  <video
+                    ref={isScreenSharing ? videoRef : remoteVideoRef} // I see local, they see remote
+                    autoPlay
+                    playsInline
+                    muted={isScreenSharing} // Don't echo your own audio
+                    className="max-w-full max-h-full object-contain"
+                  />
                   <div className="absolute bottom-4 left-4 bg-black/60 px-3 py-1 rounded text-white text-xs font-bold flex items-center gap-2 backdrop-blur-md z-10">
                     <Monitor size={12} className="text-gold-500" />
                     {isScreenSharing
